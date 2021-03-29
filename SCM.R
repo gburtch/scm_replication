@@ -1,6 +1,10 @@
 # Author: Gordon Burtch
 # Date: March 13th, 2021
 # Purpose: Replication of Mitze, T., Kosfeld, R., Rode, J., & Wälde, K. (2020). Face masks considerably reduce COVID-19 cases in Germany. Proceedings of the National Academy of Sciences, 117(51), 32293-32301.
+
+# Note: datasets and replication material are available at this github repository - https://github.com/gburtch/scm_replication
+
+# Load libraries
 library(tidyr)
 library(dplyr)
 library(ggplot2)
@@ -65,14 +69,13 @@ ggplot(data=covid,aes(x=date,y=log(cum_cases+1),color=factor(treat),group=dist_i
   theme(text = element_text(family = "Economica", size = 10), axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0)),axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)))+
   NULL
 
-# Let's create an approximation of synthetic control, ourselves, manually.
-# We will do this with a simple linear predictive model in the pre-treatment period.
+### Synthetic Control using LASSO
+
 # First we pivot the data from long to wide, to use other districts' time series as predictors.
 covid.wide <- covid %>% pivot_wider(id_cols=c("date"),names_from=c("district"),values_from=c("cum_cases","under.3.years","yr.3.to.under.6.years"))
 covid.wide.train <- subset(covid.wide,date<as.numeric(as.Date("2020-04-06")))
 
-# We have many more predictors than time periods now, so we let's do some feature selection.
-# I'm going ot use LASSO to pick the controls I'll work with. 
+# We have many more predictors than time periods now (~400 vs. 35), so we use LASSO for feature selection.
 covid.wide.train.lasso <- remove_empty(covid.wide.train, which=c("rows","cols"))
 covid.wide.train_mm <- model.matrix(`cum_cases_ SK Jena`~.,covid.wide.train.lasso)
 lasso <- cv.glmnet(covid.wide.train_mm, covid.wide.train$`cum_cases_ SK Jena`, standardize=TRUE,alpha=1,nfolds=5)
@@ -81,12 +84,12 @@ ests <- as.matrix(coef(lasso,lasso$lambda.1se))
 # Here are the non-zero control panels that lasso selected.
 names(ests[ests!=0,])
 
-# Okay, let's build our 'synthetic control'. 
+# We can use the resulting control districts to create our 'synthetic control'. 
 fml.rhs <- paste(c(names(ests[ests!=0,]))[2:length(names(ests[ests!=0,]))],collapse="+")
 fml <- as.formula(paste("`cum_cases_ SK Jena`~",fml.rhs))
 synth <- lm(data=covid.wide.train,formula=fml)
 
-# Now we can synthesize the control series in the original data, into the post period. 
+# Last, we can synthesize the resulting control series into the post treatment period. 
 covid.wide$synth <- predict(synth,newdata = covid.wide)
 
 # And, finally, we plot the comparison between synthetic and actual.
@@ -107,33 +110,34 @@ OLS_plot <- ggplot(data=covid.wide,aes(y=synth,x=date,linetype="dashed")) + geom
 # Let's see how we did.
 OLS_plot
 
-# That was quick and dirty, so let's do this properly now. 
-# We can implement SCM properly using the Synth package.
-# This package will implement appropriate non-negativity constraints on the control weights.
-# This package will also minimize MSPE (whereas a simple OLS minimizes SSE)
+## Vanilla Synthetic Control Method using the Synth package.
 
-# Synth expects to receive a data frame.
+# The Synth package will implement non-negativity constraints on the control weights, and optimize control selection
+# by minimizing MSPE. This package will also make it easy to include additional covariates as predictors (distict features).
+
+# Make sure our data is a data frame.
 covid <- as.data.frame(covid)
 
-# Synth won't allow missing values on predictors.
+# Remove missing values.
 covid <- subset(covid,complete.cases(covid)==TRUE)
 
-# The outcome variable *must* be named Y for Synth to accept it.
+# Renaming the outcome to Y, because Synth was complaining (throwing errors) with the original variable name.
 covid <- covid %>% rename(Y = cum_cases)
 
-# Synth requires numeric date and unit ID variables.
+# Cast the panel and date variables as numeric.
 covid$date2 <- as.numeric(covid$date)
 covid$dist_id <- as.numeric(covid$dist_id)
 
 # Synth requires a list of control ID's - let's pull them out here.
 # Note: 16053 is Jena
-# The authors also omitted a few neighboring districts, and districts that instituted their own mask policies soon after Jena. 
-# We thus also exclude 16071; Weimarer Land, 16062; Nordhausen, and 8325; Rottweil.
-# The authors also omitted Saale-Holzland, but we lose it due to missing data on district features anyway.
+
+# We will also omit a few of Jena's neighboring districts and districts that instituted their own mask policies soon after Jena. 
+# Specifically, we will exclude 16071; Weimarer Land, 16062; Nordhausen, and 8325; Rottweil.
+# Saale-Holzland can also be omitted, but we dropped it due to missing data on district features, earlier.
 dist_ids <- unique(covid$dist_id)
 control_ids <- dist_ids[dist_ids != 16053 & dist_ids != 16071 & dist_ids != 16062 & dist_ids != 8325]
 
-# Now we use Synth's data preparation package. 
+# Now we can use Synth's data preparation package. 
 dataprep.out=
   dataprep(foo = covid,
            dependent = "Y",
@@ -171,6 +175,7 @@ dataprep.out=
            #We will just see what this looks like, however. 
            time.plot = 18343:18403)
 
+# And final, create the synthetic control.
 # This will take a few minutes to run and identify the optimal weights.
 synth.out = synth(dataprep.out)
 
