@@ -99,7 +99,7 @@ OLS_plot <- ggplot(data=covid.wide,aes(y=synth,x=date,linetype="dashed")) + geom
   xlab(expression(bold(paste("Date (2020)")))) +  
   ylab(expression(bold(paste("Cumulative COVID-19 Cases")))) + 
   scale_linetype_manual(name="Series",values=c("dashed","solid"),labels=c("Synth","Jena, DE"))+
-  ggtitle("Effect of Masks on COVID-19 (LASSO -> OLS Synth)") +
+  ggtitle("Effect of Masks on COVID-19 (SCUL)") +
   theme_economist() +
   #Comment the below line out if you don't have Economica fonts installed.
   theme(text = element_text(family = "Economica", size = 10), axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0)),axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)))+
